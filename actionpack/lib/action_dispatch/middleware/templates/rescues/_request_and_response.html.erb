@@ -1,12 +1,7 @@
-<% unless @exception.blamed_files.blank? %>
-  <% if (hide = @exception.blamed_files.length > 8) %>
-    <a href="#" onclick="return toggleTrace()">Toggle blamed files</a>
-  <% end %>
-  <pre id="blame_trace" <%='style="display:none"' if hide %>><code><%= @exception.describe_blame %></code></pre>
-<% end %>
-
 <h2 style="margin-top: 30px">Request</h2>
-<p><b>Parameters</b>:</p> <pre><%= debug_params(@request.filtered_parameters) %></pre>
+<% if params_valid? %>
+  <p><b>Parameters</b>:</p> <pre><%= debug_params(@request.filtered_parameters) %></pre>
+<% end %>
 
 <div class="details">
   <div class="summary"><a href="#" onclick="return toggleSessionDump()">Toggle session dump</a></div>

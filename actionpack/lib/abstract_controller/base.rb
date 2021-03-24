@@ -1,13 +1,43 @@
-require 'erubis'
-require 'abstract_controller/error'
-require 'active_support/configurable'
-require 'active_support/descendants_tracker'
-require 'active_support/core_ext/module/anonymous'
-require 'active_support/core_ext/module/attr_internal'
+# frozen_string_literal: true
+
+require "abstract_controller/error"
+require "active_support/configurable"
+require "active_support/descendants_tracker"
+require "active_support/core_ext/module/anonymous"
+require "active_support/core_ext/module/attr_internal"
 
 module AbstractController
   # Raised when a non-existing controller action is triggered.
   class ActionNotFound < StandardError
+    attr_reader :controller, :action
+    def initialize(message = nil, controller = nil, action = nil)
+      @controller = controller
+      @action = action
+      super(message)
+    end
+
+    class Correction
+      def initialize(error)
+        @error = error
+      end
+
+      def corrections
+        if @error.action
+          maybe_these = @error.controller.class.action_methods
+
+          maybe_these.sort_by { |n|
+            DidYouMean::Jaro.distance(@error.action.to_s, n)
+          }.reverse.first(4)
+        else
+          []
+        end
+      end
+    end
+
+    # We may not have DYM, and DYM might not let us register error handlers
+    if defined?(DidYouMean) && DidYouMean.respond_to?(:correct_error)
+      DidYouMean.correct_error(self, Correction)
+    end
   end
 
   # AbstractController::Base is a low-level API. Nobody should be
@@ -15,14 +45,21 @@ module AbstractController
   # expected to provide their own +render+ method, since rendering means
   # different things depending on the context.
   class Base
+    ##
+    # Returns the body of the HTTP response sent by the controller.
     attr_internal :response_body
+
+    ##
+    # Returns the name of the action this controller is processing.
     attr_internal :action_name
+
+    ##
+    # Returns the formats that can be processed by the controller.
     attr_internal :formats
 
     include ActiveSupport::Configurable
     extend ActiveSupport::DescendantsTracker
 
-    undef_method :not_implemented
     class << self
       attr_reader :abstract
       alias_method :abstract?, :abstract
@@ -70,7 +107,9 @@ module AbstractController
             # Except for public instance methods of Base and its ancestors
             internal_methods +
             # Be sure to include shadowed public instance methods of this class
-            public_instance_methods(false)).uniq.map(&:to_s)
+            public_instance_methods(false))
+
+          methods.map!(&:to_s)
 
           methods.to_set
         end
@@ -94,7 +133,7 @@ module AbstractController
       # ==== Returns
       # * <tt>String</tt>
       def controller_path
-        @controller_path ||= name.sub(/Controller$/, ''.freeze).underscore unless anonymous?
+        @controller_path ||= name.delete_suffix("Controller").underscore unless anonymous?
       end
 
       # Refresh the cached action_methods when a new action_method is added.
@@ -118,7 +157,7 @@ module AbstractController
       @_action_name = action.to_s
 
       unless action_name = _find_action_name(@_action_name)
-        raise ActionNotFound, "The action '#{action}' could not be found for #{self.class.name}"
+        raise ActionNotFound.new("The action '#{action}' could not be found for #{self.class.name}", self, action)
       end
 
       @_response_body = nil
@@ -150,6 +189,13 @@ module AbstractController
       _find_action_name(action_name)
     end
 
+    # Tests if a response body is set. Used to determine if the
+    # +process_action+ callback needs to be terminated in
+    # +AbstractController::Callbacks+.
+    def performed?
+      response_body
+    end
+
     # Returns true if the given controller is capable of rendering
     # a path. A subclass of +AbstractController::Base+
     # may return false. An Email controller for example does not
@@ -158,15 +204,16 @@ module AbstractController
       true
     end
 
-    private
+    def inspect # :nodoc:
+      "#<#{self.class.name}:#{'%#016x' % (object_id << 1)}>"
+    end
 
+    private
       # Returns true if the name can be considered an action because
       # it has a method defined in the controller.
       #
       # ==== Parameters
       # * <tt>name</tt> - The name of an action to be tested
-      #
-      # :api: private
       def action_method?(name)
         self.class.action_methods.include?(name)
       end
@@ -208,7 +255,7 @@ module AbstractController
       # ==== Returns
       # * <tt>string</tt> - The name of the method that handles the action
       # * false           - No valid method name could be found.
-      # Raise AbstractController::ActionNotFound.
+      # Raise +AbstractController::ActionNotFound+.
       def _find_action_name(action_name)
         _valid_action_name?(action_name) && method_for_action(action_name)
       end
@@ -224,11 +271,11 @@ module AbstractController
       # with a template matching the action name is considered to exist.
       #
       # If you override this method to handle additional cases, you may
-      # also provide a method (like _handle_method_missing) to handle
+      # also provide a method (like +_handle_method_missing+) to handle
       # the case.
       #
-      # If none of these conditions are true, and method_for_action
-      # returns nil, an AbstractController::ActionNotFound exception will be raised.
+      # If none of these conditions are true, and +method_for_action+
+      # returns +nil+, an +AbstractController::ActionNotFound+ exception will be raised.
       #
       # ==== Parameters
       # * <tt>action_name</tt> - An action name to find a method name for

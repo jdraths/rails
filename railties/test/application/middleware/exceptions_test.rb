@@ -1,5 +1,7 @@
-require 'isolation/abstract_unit'
-require 'rack/test'
+# frozen_string_literal: true
+
+require "isolation/abstract_unit"
+require "rack/test"
 
 module ApplicationTests
   class MiddlewareExceptionsTest < ActiveSupport::TestCase
@@ -8,7 +10,6 @@ module ApplicationTests
 
     def setup
       build_app
-      boot_rails
     end
 
     def teardown
@@ -45,6 +46,25 @@ module ApplicationTests
       assert_equal 404, last_response.status
     end
 
+    test "renders unknown http methods as 405" do
+      request "/", { "REQUEST_METHOD" => "NOT_AN_HTTP_METHOD" }
+      assert_equal 405, last_response.status
+    end
+
+    test "renders unknown http methods as 405 when routes are used as the custom exceptions app" do
+      app_file "config/routes.rb", <<-RUBY
+        Rails.application.routes.draw do
+        end
+      RUBY
+
+      add_to_config "config.exceptions_app = self.routes"
+
+      app.config.action_dispatch.show_exceptions = true
+
+      request "/", { "REQUEST_METHOD" => "NOT_AN_HTTP_METHOD" }
+      assert_equal 405, last_response.status
+    end
+
     test "uses custom exceptions app" do
       add_to_config <<-RUBY
         config.exceptions_app = lambda do |env|
@@ -59,7 +79,7 @@ module ApplicationTests
       assert_equal "YOU FAILED", last_response.body
     end
 
-    test "url generation error when action_dispatch.show_exceptions is set raises an exception" do
+    test "URL generation error when action_dispatch.show_exceptions is set raises an exception" do
       controller :foo, <<-RUBY
         class FooController < ActionController::Base
           def index
@@ -70,7 +90,7 @@ module ApplicationTests
 
       app.config.action_dispatch.show_exceptions = true
 
-      get '/foo'
+      get "/foo"
       assert_equal 500, last_response.status
     end
 
@@ -78,7 +98,7 @@ module ApplicationTests
       app.config.action_dispatch.show_exceptions = false
 
       assert_raise(ActionController::RoutingError) do
-        get '/foo'
+        get "/foo"
       end
     end
 
@@ -86,7 +106,7 @@ module ApplicationTests
       app.config.action_dispatch.show_exceptions = true
 
       assert_nothing_raised do
-        get '/foo'
+        get "/foo"
         assert_match "The page you were looking for doesn't exist.", last_response.body
       end
     end
@@ -96,9 +116,23 @@ module ApplicationTests
       app.config.consider_all_requests_local = true
 
       assert_nothing_raised do
-        get '/foo'
+        get "/foo"
         assert_match "No route matches", last_response.body
       end
+    end
+
+    test "routing to a nonexistent controller when action_dispatch.show_exceptions and consider_all_requests_local are set shows diagnostics" do
+      app_file "config/routes.rb", <<-RUBY
+        Rails.application.routes.draw do
+          resources :articles
+        end
+      RUBY
+
+      app.config.action_dispatch.show_exceptions = true
+      app.config.consider_all_requests_local = true
+
+      get "/articles"
+      assert_match "<title>Action Controller: Exception caught</title>", last_response.body
     end
 
     test "displays diagnostics message when exception raised in template that contains UTF-8" do
@@ -112,14 +146,30 @@ module ApplicationTests
       app.config.action_dispatch.show_exceptions = true
       app.config.consider_all_requests_local = true
 
-      app_file 'app/views/foo/index.html.erb', <<-ERB
+      app_file "app/views/foo/index.html.erb", <<-ERB
         <% raise 'boooom' %>
         ✓測試テスト시험
       ERB
 
-      get '/foo', :utf8 => '✓'
+      get "/foo", utf8: "✓"
       assert_match(/boooom/, last_response.body)
       assert_match(/測試テスト시험/, last_response.body)
+    end
+
+    test "displays diagnostics message when malformed query parameters are provided" do
+      controller :foo, <<-RUBY
+        class FooController < ActionController::Base
+          def index
+          end
+        end
+      RUBY
+
+      app.config.action_dispatch.show_exceptions = true
+      app.config.consider_all_requests_local = true
+
+      get "/foo?x[y]=1&x[y][][w]=2"
+      assert_equal 400, last_response.status
+      assert_match "Invalid query parameters", last_response.body
     end
   end
 end

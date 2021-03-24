@@ -1,5 +1,7 @@
-require 'generators/generators_test_helper'
-require 'rails/generators/job/job_generator'
+# frozen_string_literal: true
+
+require "generators/generators_test_helper"
+require "rails/generators/job/job_generator"
 
 class JobGeneratorTest < Rails::Generators::TestCase
   include GeneratorsTestHelper
@@ -32,5 +34,15 @@ class JobGeneratorTest < Rails::Generators::TestCase
     assert_file "app/jobs/application_job.rb" do |job|
       assert_match(/class ApplicationJob < ActiveJob::Base/, job)
     end
+  end
+
+  def test_job_suffix_is_not_duplicated
+    run_generator ["notifier_job"]
+
+    assert_no_file "app/jobs/notifier_job_job.rb"
+    assert_file "app/jobs/notifier_job.rb"
+
+    assert_no_file "test/jobs/notifier_job_job_test.rb"
+    assert_file "test/jobs/notifier_job_test.rb"
   end
 end

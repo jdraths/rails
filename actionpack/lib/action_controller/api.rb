@@ -1,6 +1,8 @@
-require 'action_view'
-require 'action_controller'
-require 'action_controller/log_subscriber'
+# frozen_string_literal: true
+
+require "action_view"
+require "action_controller"
+require "action_controller/log_subscriber"
 
 module ActionController
   # API Controller is a lightweight version of <tt>ActionController::Base</tt>,
@@ -10,7 +12,7 @@ module ActionController
   #
   # An API Controller is different from a normal controller in the sense that
   # by default it doesn't include a number of features that are usually required
-  # by browser access only: layouts and templates rendering, cookies, sessions,
+  # by browser access only: layouts and templates rendering,
   # flash, assets, and so on. This makes the entire controller stack thinner,
   # suitable for API applications. It doesn't mean you won't have such
   # features if you need them: they're all available for you to include in
@@ -81,10 +83,9 @@ module ActionController
   #     end
   #   end
   #
-  # Quite straightforward. Make sure to check the modules included in
-  # <tt>ActionController::Base</tt> if you want to use any other
-  # functionality that is not provided by <tt>ActionController::API</tt>
-  # out of the box.
+  # Make sure to check the modules included in <tt>ActionController::Base</tt>
+  # if you want to use any other functionality that is not provided
+  # by <tt>ActionController::API</tt> out of the box.
   class API < Metal
     abstract!
 
@@ -92,7 +93,7 @@ module ActionController
     # the ones passed as arguments:
     #
     #   class MyAPIBaseController < ActionController::Metal
-    #     ActionController::API.without_modules(:ForceSSL, :UrlFor).each do |left|
+    #     ActionController::API.without_modules(:UrlFor).each do |left|
     #       include left
     #     end
     #   end
@@ -119,8 +120,9 @@ module ActionController
       BasicImplicitRender,
       StrongParameters,
 
-      ForceSSL,
       DataStreaming,
+      DefaultHeaders,
+      Logging,
 
       # Before callbacks should also be executed as early as possible, so
       # also include them at the bottom.
@@ -142,6 +144,7 @@ module ActionController
       include mod
     end
 
+    ActiveSupport.run_load_hooks(:action_controller_api, self)
     ActiveSupport.run_load_hooks(:action_controller, self)
   end
 end

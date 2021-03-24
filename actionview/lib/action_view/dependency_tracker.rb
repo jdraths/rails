@@ -1,5 +1,7 @@
-require 'concurrent/map'
-require 'action_view/path_set'
+# frozen_string_literal: true
+
+require "concurrent/map"
+require "action_view/path_set"
 
 module ActionView
   class DependencyTracker # :nodoc:
@@ -105,7 +107,6 @@ module ActionView
       attr_reader :name, :template
       private :name, :template
 
-
       private
         def source
           template.source
@@ -129,8 +130,9 @@ module ActionView
 
         def add_dependencies(render_dependencies, arguments, pattern)
           arguments.scan(pattern) do
-            add_dynamic_dependency(render_dependencies, Regexp.last_match[:dynamic])
-            add_static_dependency(render_dependencies, Regexp.last_match[:static])
+            match = Regexp.last_match
+            add_dynamic_dependency(render_dependencies, match[:dynamic])
+            add_static_dependency(render_dependencies, match[:static], match[:quote])
           end
         end
 
@@ -140,9 +142,14 @@ module ActionView
           end
         end
 
-        def add_static_dependency(dependencies, dependency)
+        def add_static_dependency(dependencies, dependency, quote_type)
+          if quote_type == '"'
+            # Ignore if there is interpolation
+            return if dependency.include?('#{')
+          end
+
           if dependency
-            if dependency.include?('/')
+            if dependency.include?("/")
               dependencies << dependency
             else
               dependencies << "#{directory}/#{dependency}"
@@ -163,7 +170,7 @@ module ActionView
         def explicit_dependencies
           dependencies = source.scan(EXPLICIT_DEPENDENCY).flatten.uniq
 
-          wildcards, explicits = dependencies.partition { |dependency| dependency[-1] == '*' }
+          wildcards, explicits = dependencies.partition { |dependency| dependency.end_with?("*") }
 
           (explicits + resolve_directories(wildcards)).uniq
         end

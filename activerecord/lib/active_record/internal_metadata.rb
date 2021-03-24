@@ -1,55 +1,57 @@
-require 'active_record/scoping/default'
-require 'active_record/scoping/named'
+# frozen_string_literal: true
+
+require "active_record/scoping/default"
+require "active_record/scoping/named"
 
 module ActiveRecord
   # This class is used to create a table that keeps track of values and keys such
   # as which environment migrations were run in.
+  #
+  # This is enabled by default. To disable this functionality set
+  # `use_metadata_table` to false in your database configuration.
   class InternalMetadata < ActiveRecord::Base # :nodoc:
     class << self
+      def enabled?
+        ActiveRecord::Base.connection.use_metadata_table?
+      end
+
       def primary_key
         "key"
       end
 
       def table_name
-        "#{table_name_prefix}#{ActiveRecord::Base.internal_metadata_table_name}#{table_name_suffix}"
-      end
-
-      def original_table_name
-        "#{table_name_prefix}active_record_internal_metadatas#{table_name_suffix}"
+        "#{table_name_prefix}#{internal_metadata_table_name}#{table_name_suffix}"
       end
 
       def []=(key, value)
-        first_or_initialize(key: key).update_attributes!(value: value)
+        return unless enabled?
+
+        find_or_initialize_by(key: key).update!(value: value)
       end
 
       def [](key)
+        return unless enabled?
+
         where(key: key).pluck(:value).first
-      end
-
-      def table_exists?
-        ActiveSupport::Deprecation.silence { connection.table_exists?(table_name) }
-      end
-
-      def original_table_exists?
-        # This method will be removed in Rails 5.1
-        # Since it is only necessary when `active_record_internal_metadatas` could exist
-        ActiveSupport::Deprecation.silence { connection.table_exists?(original_table_name) }
       end
 
       # Creates an internal metadata table with columns +key+ and +value+
       def create_table
-        if original_table_exists?
-          connection.rename_table(original_table_name, table_name)
-        end
-        unless table_exists?
-          key_options = connection.internal_string_options_for_primary_key
+        return unless enabled?
 
+        unless connection.table_exists?(table_name)
           connection.create_table(table_name, id: false) do |t|
-            t.string :key, key_options
+            t.string :key, **connection.internal_string_options_for_primary_key
             t.string :value
             t.timestamps
           end
         end
+      end
+
+      def drop_table
+        return unless enabled?
+
+        connection.drop_table table_name, if_exists: true
       end
     end
   end

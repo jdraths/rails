@@ -1,6 +1,8 @@
+# frozen_string_literal: true
+
 module ActiveRecord
-  # = Active Record Has Many Association
   module Associations
+    # = Active Record Has Many Association
     # This is the proxy that handles a has many association.
     #
     # If the association has a <tt>:through</tt> option further specialization
@@ -16,49 +18,47 @@ module ActiveRecord
         when :restrict_with_error
           unless empty?
             record = owner.class.human_attribute_name(reflection.name).downcase
-            message = owner.errors.generate_message(:base, :'restrict_dependent_destroy.many', record: record, raise: true) rescue nil
-            if message
-              ActiveSupport::Deprecation.warn(<<-MESSAGE.squish)
-                The error key `:'restrict_dependent_destroy.many'` has been deprecated and will be removed in Rails 5.1.
-                Please use `:'restrict_dependent_destroy.has_many'` instead.
-              MESSAGE
-            end
-            owner.errors.add(:base, message || :'restrict_dependent_destroy.has_many', record: record)
+            owner.errors.add(:base, :'restrict_dependent_destroy.has_many', record: record)
             throw(:abort)
           end
 
-        else
-          if options[:dependent] == :destroy
-            # No point in executing the counter update since we're going to destroy the parent anyway
-            load_target.each { |t| t.destroyed_by_association = reflection }
-            destroy_all
-          else
-            delete_all
+        when :destroy
+          # No point in executing the counter update since we're going to destroy the parent anyway
+          load_target.each { |t| t.destroyed_by_association = reflection }
+          destroy_all
+        when :destroy_async
+          load_target.each do |t|
+            t.destroyed_by_association = reflection
           end
+
+          unless target.empty?
+            association_class = target.first.class
+            primary_key_column = association_class.primary_key.to_sym
+
+            ids = target.collect do |assoc|
+              assoc.public_send(primary_key_column)
+            end
+
+            enqueue_destroy_association(
+              owner_model_name: owner.class.to_s,
+              owner_id: owner.id,
+              association_class: reflection.klass.to_s,
+              association_ids: ids,
+              association_primary_key_column: primary_key_column,
+              ensuring_owner_was_method: options.fetch(:ensuring_owner_was, nil)
+            )
+          end
+        else
+          delete_all
         end
       end
 
       def insert_record(record, validate = true, raise = false)
         set_owner_attributes(record)
-        set_inverse_instance(record)
-
-        if raise
-          record.save!(:validate => validate)
-        else
-          record.save(:validate => validate)
-        end
-      end
-
-      def empty?
-        if reflection.has_cached_counter?
-          size.zero?
-        else
-          super
-        end
+        super
       end
 
       private
-
         # Returns the number of records in this collection.
         #
         # If the association has a counter cache it gets that value. Otherwise
@@ -74,15 +74,15 @@ module ActiveRecord
         # the loaded flag is set to true as well.
         def count_records
           count = if reflection.has_cached_counter?
-            owner._read_attribute reflection.counter_cache_column
+            owner.read_attribute(reflection.counter_cache_column).to_i
           else
-            scope.count
+            scope.count(:all)
           end
 
           # If there's nothing in the database and @target has no new records
           # we are certain the current target is an empty array. This is a
           # documented side-effect of the method that may avoid an extra SELECT.
-          @target ||= [] and loaded! if count == 0
+          loaded! if count == 0
 
           [association_scope.limit_value, count].compact.min
         end
@@ -97,7 +97,7 @@ module ActiveRecord
           if reflection.counter_must_be_updated_by_has_many?
             counter = reflection.counter_cache_column
             owner.increment(counter, difference)
-            owner.send(:clear_attribute_change, counter) # eww
+            owner.send(:"clear_#{counter}_change")
           end
         end
 
@@ -105,13 +105,14 @@ module ActiveRecord
           if method == :delete_all
             scope.delete_all
           else
-            scope.update_all(reflection.foreign_key => nil)
+            scope.update_all(nullified_owner_attributes)
           end
         end
 
         def delete_or_nullify_all_records(method)
-          count = delete_count(method, self.scope)
+          count = delete_count(method, scope)
           update_counter(-count)
+          count
         end
 
         # Deletes the records according to the <tt>:dependent</tt> option.
@@ -142,6 +143,14 @@ module ActiveRecord
             update_counter_in_memory(difference)
           end
           saved_successfully
+        end
+
+        def difference(a, b)
+          a - b
+        end
+
+        def intersection(a, b)
+          a & b
         end
     end
   end

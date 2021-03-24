@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module ActiveModel
   module Validations
     # == Active \Model \Validation \Callbacks
@@ -23,14 +25,12 @@ module ActiveModel
       included do
         include ActiveSupport::Callbacks
         define_callbacks :validation,
-                         terminator: deprecated_false_terminator,
                          skip_after_callbacks_if_terminated: true,
                          scope: [:kind, :name]
       end
 
       module ClassMethods
-        # Defines a callback that will get called right before validation
-        # happens.
+        # Defines a callback that will get called right before validation.
         #
         #   class Person
         #     include ActiveModel::Validations
@@ -54,19 +54,14 @@ module ActiveModel
         #   person.valid? # => true
         #   person.name   # => "bob"
         def before_validation(*args, &block)
-          options = args.last
-          if options.is_a?(Hash) && options[:on]
-            options[:if] = Array(options[:if])
-            options[:on] = Array(options[:on])
-            options[:if].unshift ->(o) {
-              options[:on].include? o.validation_context
-            }
-          end
-          set_callback(:validation, :before, *args, &block)
+          options = args.extract_options!
+
+          set_options_for_callback(options)
+
+          set_callback(:validation, :before, *args, options, &block)
         end
 
-        # Defines a callback that will get called right after validation
-        # happens.
+        # Defines a callback that will get called right after validation.
         #
         #   class Person
         #     include ActiveModel::Validations
@@ -94,22 +89,31 @@ module ActiveModel
         #   person.status # => true
         def after_validation(*args, &block)
           options = args.extract_options!
+          options = options.dup
           options[:prepend] = true
-          options[:if] = Array(options[:if])
-          if options[:on]
-            options[:on] = Array(options[:on])
-            options[:if].unshift ->(o) {
-              options[:on].include? o.validation_context
-            }
-          end
-          set_callback(:validation, :after, *(args << options), &block)
+
+          set_options_for_callback(options)
+
+          set_callback(:validation, :after, *args, options, &block)
         end
+
+        private
+          def set_options_for_callback(options)
+            if options.key?(:on)
+              options[:on] = Array(options[:on])
+              options[:if] = [
+                ->(o) {
+                  !(options[:on] & Array(o.validation_context)).empty?
+                },
+                *options[:if]
+              ]
+            end
+          end
       end
 
-    protected
-
+    private
       # Overwrite run validations to include callbacks.
-      def run_validations! #:nodoc:
+      def run_validations!
         _run_validation_callbacks { super }
       end
     end

@@ -1,26 +1,27 @@
+# frozen_string_literal: true
+
 module ActiveRecord
-  # = Active Record Belongs To Polymorphic Association
   module Associations
+    # = Active Record Belongs To Polymorphic Association
     class BelongsToPolymorphicAssociation < BelongsToAssociation #:nodoc:
       def klass
         type = owner[reflection.foreign_type]
-        type.presence && type.constantize
+        type.presence && owner.class.polymorphic_class_for(type)
+      end
+
+      def target_changed?
+        super || owner.saved_change_to_attribute?(reflection.foreign_type)
       end
 
       private
-
-        def replace_keys(record)
+        def replace_keys(record, force: false)
           super
-          owner[reflection.foreign_type] = record.class.base_class.name
-        end
 
-        def remove_keys
-          super
-          owner[reflection.foreign_type] = nil
-        end
+          target_type = record ? record.class.polymorphic_name : nil
 
-        def different_target?(record)
-          super || record.class != klass
+          if force || owner._read_attribute(reflection.foreign_type) != target_type
+            owner[reflection.foreign_type] = target_type
+          end
         end
 
         def inverse_reflection_for(record)

@@ -1,4 +1,7 @@
-require 'active_support/core_ext/hash/keys'
+# frozen_string_literal: true
+
+require "active_support/core_ext/object/try"
+require "active_support/core_ext/integer/time"
 
 module ActionController
   module ConditionalGet
@@ -7,8 +10,7 @@ module ActionController
     include Head
 
     included do
-      class_attribute :etaggers
-      self.etaggers = []
+      class_attribute :etaggers, default: []
     end
 
     module ClassMethods
@@ -18,12 +20,12 @@ module ActionController
       # of cached pages.
       #
       #   class InvoicesController < ApplicationController
-      #     etag { current_user.try :id }
+      #     etag { current_user&.id }
       #
       #     def show
       #       # Etag will differ even for the same invoice when it's viewed by a different current_user
       #       @invoice = Invoice.find(params[:id])
-      #       fresh_when(@invoice)
+      #       fresh_when etag: @invoice
       #     end
       #   end
       def etag(&etagger)
@@ -129,7 +131,7 @@ module ActionController
     # * <tt>:etag</tt> Sets a "weak" ETag validator on the response. See the
     #   +:weak_etag+ option.
     # * <tt>:weak_etag</tt> Sets a "weak" ETag validator on the response.
-    #   requests that set If-None-Match header may return a 304 Not Modified
+    #   Requests that set If-None-Match header may return a 304 Not Modified
     #   response if it matches the ETag exactly. A weak ETag indicates semantic
     #   equivalence, not byte-for-byte equality, so they're good for caching
     #   HTML pages in browser caches. They can't be used for responses that
@@ -180,7 +182,7 @@ module ActionController
     #
     # You can also pass an object that responds to +maximum+, such as a
     # collection of active records. In this case +last_modified+ will be set by
-    # calling +maximum(:updated_at)+ on the collection (the timestamp of the
+    # calling <tt>maximum(:updated_at)</tt> on the collection (the timestamp of the
     # most recently updated record) and the +etag+ by passing the object itself.
     #
     #   def index
@@ -227,25 +229,39 @@ module ActionController
     #   expires_in 3.hours, public: true, must_revalidate: true
     #
     # This method will overwrite an existing Cache-Control header.
-    # See http://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html for more possibilities.
+    # See https://www.w3.org/Protocols/rfc2616/rfc2616-sec14.html for more possibilities.
+    #
+    # HTTP Cache-Control Extensions for Stale Content. See https://tools.ietf.org/html/rfc5861
+    # It helps to cache an asset and serve it while is being revalidated and/or returning with an error.
+    #
+    #   expires_in 3.hours, public: true, stale_while_revalidate: 60.seconds
+    #   expires_in 3.hours, public: true, stale_while_revalidate: 60.seconds, stale_if_error: 5.minutes
+    #
+    # HTTP Cache-Control Extensions other values: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control
+    # Any additional key-value pairs are concatenated onto the `Cache-Control` header in the response:
+    #
+    #   expires_in 3.hours, public: true, "s-maxage": 3.hours, "no-transform": true
     #
     # The method will also ensure an HTTP Date header for client compatibility.
     def expires_in(seconds, options = {})
       response.cache_control.merge!(
-        :max_age         => seconds,
-        :public          => options.delete(:public),
-        :must_revalidate => options.delete(:must_revalidate)
+        max_age: seconds,
+        public: options.delete(:public),
+        must_revalidate: options.delete(:must_revalidate),
+        stale_while_revalidate: options.delete(:stale_while_revalidate),
+        stale_if_error: options.delete(:stale_if_error),
       )
       options.delete(:private)
 
-      response.cache_control[:extras] = options.map {|k,v| "#{k}=#{v}"}
+      response.cache_control[:extras] = options.map { |k, v| "#{k}=#{v}" }
       response.date = Time.now unless response.date?
     end
 
-    # Sets an HTTP 1.1 Cache-Control header of <tt>no-cache</tt> so no caching should
-    # occur by the browser or intermediate caches (like caching proxy servers).
+    # Sets an HTTP 1.1 Cache-Control header of <tt>no-cache</tt>. This means the
+    # resource will be marked as stale, so clients must always revalidate.
+    # Intermediate/browser caches may still store the asset.
     def expires_now
-      response.cache_control.replace(:no_cache => true)
+      response.cache_control.replace(no_cache: true)
     end
 
     # Cache or yield the block. The cache is supposed to never expire.

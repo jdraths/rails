@@ -1,3 +1,7 @@
+# frozen_string_literal: true
+
+require "active_record/insert_all"
+
 module ActiveRecord
   # = Active Record \Persistence
   module Persistence
@@ -53,6 +57,200 @@ module ActiveRecord
         end
       end
 
+      # Inserts a single record into the database in a single SQL INSERT
+      # statement. It does not instantiate any models nor does it trigger
+      # Active Record callbacks or validations. Though passed values
+      # go through Active Record's type casting and serialization.
+      #
+      # See <tt>ActiveRecord::Persistence#insert_all</tt> for documentation.
+      def insert(attributes, returning: nil, unique_by: nil)
+        insert_all([ attributes ], returning: returning, unique_by: unique_by)
+      end
+
+      # Inserts multiple records into the database in a single SQL INSERT
+      # statement. It does not instantiate any models nor does it trigger
+      # Active Record callbacks or validations. Though passed values
+      # go through Active Record's type casting and serialization.
+      #
+      # The +attributes+ parameter is an Array of Hashes. Every Hash determines
+      # the attributes for a single row and must have the same keys.
+      #
+      # Rows are considered to be unique by every unique index on the table. Any
+      # duplicate rows are skipped.
+      # Override with <tt>:unique_by</tt> (see below).
+      #
+      # Returns an <tt>ActiveRecord::Result</tt> with its contents based on
+      # <tt>:returning</tt> (see below).
+      #
+      # ==== Options
+      #
+      # [:returning]
+      #   (PostgreSQL only) An array of attributes to return for all successfully
+      #   inserted records, which by default is the primary key.
+      #   Pass <tt>returning: %w[ id name ]</tt> for both id and name
+      #   or <tt>returning: false</tt> to omit the underlying <tt>RETURNING</tt> SQL
+      #   clause entirely.
+      #
+      # [:unique_by]
+      #   (PostgreSQL and SQLite only) By default rows are considered to be unique
+      #   by every unique index on the table. Any duplicate rows are skipped.
+      #
+      #   To skip rows according to just one unique index pass <tt>:unique_by</tt>.
+      #
+      #   Consider a Book model where no duplicate ISBNs make sense, but if any
+      #   row has an existing id, or is not unique by another unique index,
+      #   <tt>ActiveRecord::RecordNotUnique</tt> is raised.
+      #
+      #   Unique indexes can be identified by columns or name:
+      #
+      #     unique_by: :isbn
+      #     unique_by: %i[ author_id name ]
+      #     unique_by: :index_books_on_isbn
+      #
+      # Because it relies on the index information from the database
+      # <tt>:unique_by</tt> is recommended to be paired with
+      # Active Record's schema_cache.
+      #
+      # ==== Example
+      #
+      #   # Insert records and skip inserting any duplicates.
+      #   # Here "Eloquent Ruby" is skipped because its id is not unique.
+      #
+      #   Book.insert_all([
+      #     { id: 1, title: "Rework", author: "David" },
+      #     { id: 1, title: "Eloquent Ruby", author: "Russ" }
+      #   ])
+      #
+      #   # insert_all works on chained scopes, and you can use create_with
+      #   # to set default attributes for all inserted records.
+      #
+      #   author.books.create_with(created_at: Time.now).insert_all([
+      #     { id: 1, title: "Rework" },
+      #     { id: 2, title: "Eloquent Ruby" }
+      #   ])
+      def insert_all(attributes, returning: nil, unique_by: nil)
+        InsertAll.new(self, attributes, on_duplicate: :skip, returning: returning, unique_by: unique_by).execute
+      end
+
+      # Inserts a single record into the database in a single SQL INSERT
+      # statement. It does not instantiate any models nor does it trigger
+      # Active Record callbacks or validations. Though passed values
+      # go through Active Record's type casting and serialization.
+      #
+      # See <tt>ActiveRecord::Persistence#insert_all!</tt> for more.
+      def insert!(attributes, returning: nil)
+        insert_all!([ attributes ], returning: returning)
+      end
+
+      # Inserts multiple records into the database in a single SQL INSERT
+      # statement. It does not instantiate any models nor does it trigger
+      # Active Record callbacks or validations. Though passed values
+      # go through Active Record's type casting and serialization.
+      #
+      # The +attributes+ parameter is an Array of Hashes. Every Hash determines
+      # the attributes for a single row and must have the same keys.
+      #
+      # Raises <tt>ActiveRecord::RecordNotUnique</tt> if any rows violate a
+      # unique index on the table. In that case, no rows are inserted.
+      #
+      # To skip duplicate rows, see <tt>ActiveRecord::Persistence#insert_all</tt>.
+      # To replace them, see <tt>ActiveRecord::Persistence#upsert_all</tt>.
+      #
+      # Returns an <tt>ActiveRecord::Result</tt> with its contents based on
+      # <tt>:returning</tt> (see below).
+      #
+      # ==== Options
+      #
+      # [:returning]
+      #   (PostgreSQL only) An array of attributes to return for all successfully
+      #   inserted records, which by default is the primary key.
+      #   Pass <tt>returning: %w[ id name ]</tt> for both id and name
+      #   or <tt>returning: false</tt> to omit the underlying <tt>RETURNING</tt> SQL
+      #   clause entirely.
+      #
+      # ==== Examples
+      #
+      #   # Insert multiple records
+      #   Book.insert_all!([
+      #     { title: "Rework", author: "David" },
+      #     { title: "Eloquent Ruby", author: "Russ" }
+      #   ])
+      #
+      #   # Raises ActiveRecord::RecordNotUnique because "Eloquent Ruby"
+      #   # does not have a unique id.
+      #   Book.insert_all!([
+      #     { id: 1, title: "Rework", author: "David" },
+      #     { id: 1, title: "Eloquent Ruby", author: "Russ" }
+      #   ])
+      def insert_all!(attributes, returning: nil)
+        InsertAll.new(self, attributes, on_duplicate: :raise, returning: returning).execute
+      end
+
+      # Updates or inserts (upserts) a single record into the database in a
+      # single SQL INSERT statement. It does not instantiate any models nor does
+      # it trigger Active Record callbacks or validations. Though passed values
+      # go through Active Record's type casting and serialization.
+      #
+      # See <tt>ActiveRecord::Persistence#upsert_all</tt> for documentation.
+      def upsert(attributes, returning: nil, unique_by: nil)
+        upsert_all([ attributes ], returning: returning, unique_by: unique_by)
+      end
+
+      # Updates or inserts (upserts) multiple records into the database in a
+      # single SQL INSERT statement. It does not instantiate any models nor does
+      # it trigger Active Record callbacks or validations. Though passed values
+      # go through Active Record's type casting and serialization.
+      #
+      # The +attributes+ parameter is an Array of Hashes. Every Hash determines
+      # the attributes for a single row and must have the same keys.
+      #
+      # Returns an <tt>ActiveRecord::Result</tt> with its contents based on
+      # <tt>:returning</tt> (see below).
+      #
+      # ==== Options
+      #
+      # [:returning]
+      #   (PostgreSQL only) An array of attributes to return for all successfully
+      #   inserted records, which by default is the primary key.
+      #   Pass <tt>returning: %w[ id name ]</tt> for both id and name
+      #   or <tt>returning: false</tt> to omit the underlying <tt>RETURNING</tt> SQL
+      #   clause entirely.
+      #
+      # [:unique_by]
+      #   (PostgreSQL and SQLite only) By default rows are considered to be unique
+      #   by every unique index on the table. Any duplicate rows are skipped.
+      #
+      #   To skip rows according to just one unique index pass <tt>:unique_by</tt>.
+      #
+      #   Consider a Book model where no duplicate ISBNs make sense, but if any
+      #   row has an existing id, or is not unique by another unique index,
+      #   <tt>ActiveRecord::RecordNotUnique</tt> is raised.
+      #
+      #   Unique indexes can be identified by columns or name:
+      #
+      #     unique_by: :isbn
+      #     unique_by: %i[ author_id name ]
+      #     unique_by: :index_books_on_isbn
+      #
+      # Because it relies on the index information from the database
+      # <tt>:unique_by</tt> is recommended to be paired with
+      # Active Record's schema_cache.
+      #
+      # ==== Examples
+      #
+      #   # Inserts multiple records, performing an upsert when records have duplicate ISBNs.
+      #   # Here "Eloquent Ruby" overwrites "Rework" because its ISBN is duplicate.
+      #
+      #   Book.upsert_all([
+      #     { title: "Rework", author: "David", isbn: "1" },
+      #     { title: "Eloquent Ruby", author: "Russ", isbn: "1" }
+      #   ], unique_by: :isbn)
+      #
+      #   Book.find_by(isbn: "1").title # => "Eloquent Ruby"
+      def upsert_all(attributes, returning: nil, unique_by: nil)
+        InsertAll.new(self, attributes, on_duplicate: :update, returning: returning, unique_by: unique_by).execute
+      end
+
       # Given an attributes hash, +instantiate+ returns a new instance of
       # the appropriate class. Accepts only keys as strings.
       #
@@ -63,13 +261,170 @@ module ActiveRecord
       #
       # See <tt>ActiveRecord::Inheritance#discriminate_class_for_record</tt> to see
       # how this "single-table" inheritance mapping is implemented.
-      def instantiate(attributes, column_types = {})
+      def instantiate(attributes, column_types = {}, &block)
         klass = discriminate_class_for_record(attributes)
-        attributes = klass.attributes_builder.build_from_database(attributes, column_types)
-        klass.allocate.init_with('attributes' => attributes, 'new_record' => false)
+        instantiate_instance_of(klass, attributes, column_types, &block)
+      end
+
+      # Updates an object (or multiple objects) and saves it to the database, if validations pass.
+      # The resulting object is returned whether the object was saved successfully to the database or not.
+      #
+      # ==== Parameters
+      #
+      # * +id+ - This should be the id or an array of ids to be updated.
+      # * +attributes+ - This should be a hash of attributes or an array of hashes.
+      #
+      # ==== Examples
+      #
+      #   # Updates one record
+      #   Person.update(15, user_name: "Samuel", group: "expert")
+      #
+      #   # Updates multiple records
+      #   people = { 1 => { "first_name" => "David" }, 2 => { "first_name" => "Jeremy" } }
+      #   Person.update(people.keys, people.values)
+      #
+      #   # Updates multiple records from the result of a relation
+      #   people = Person.where(group: "expert")
+      #   people.update(group: "masters")
+      #
+      # Note: Updating a large number of records will run an UPDATE
+      # query for each record, which may cause a performance issue.
+      # When running callbacks is not needed for each record update,
+      # it is preferred to use {update_all}[rdoc-ref:Relation#update_all]
+      # for updating all records in a single query.
+      def update(id = :all, attributes)
+        if id.is_a?(Array)
+          id.map { |one_id| find(one_id) }.each_with_index { |object, idx|
+            object.update(attributes[idx])
+          }
+        elsif id == :all
+          all.each { |record| record.update(attributes) }
+        else
+          if ActiveRecord::Base === id
+            raise ArgumentError,
+              "You are passing an instance of ActiveRecord::Base to `update`. " \
+              "Please pass the id of the object by calling `.id`."
+          end
+          object = find(id)
+          object.update(attributes)
+          object
+        end
+      end
+
+      # Destroy an object (or multiple objects) that has the given id. The object is instantiated first,
+      # therefore all callbacks and filters are fired off before the object is deleted. This method is
+      # less efficient than #delete but allows cleanup methods and other actions to be run.
+      #
+      # This essentially finds the object (or multiple objects) with the given id, creates a new object
+      # from the attributes, and then calls destroy on it.
+      #
+      # ==== Parameters
+      #
+      # * +id+ - This should be the id or an array of ids to be destroyed.
+      #
+      # ==== Examples
+      #
+      #   # Destroy a single object
+      #   Todo.destroy(1)
+      #
+      #   # Destroy multiple objects
+      #   todos = [1,2,3]
+      #   Todo.destroy(todos)
+      def destroy(id)
+        if id.is_a?(Array)
+          find(id).each(&:destroy)
+        else
+          find(id).destroy
+        end
+      end
+
+      # Deletes the row with a primary key matching the +id+ argument, using an
+      # SQL +DELETE+ statement, and returns the number of rows deleted. Active
+      # Record objects are not instantiated, so the object's callbacks are not
+      # executed, including any <tt>:dependent</tt> association options.
+      #
+      # You can delete multiple rows at once by passing an Array of <tt>id</tt>s.
+      #
+      # Note: Although it is often much faster than the alternative, #destroy,
+      # skipping callbacks might bypass business logic in your application
+      # that ensures referential integrity or performs other essential jobs.
+      #
+      # ==== Examples
+      #
+      #   # Delete a single row
+      #   Todo.delete(1)
+      #
+      #   # Delete multiple rows
+      #   Todo.delete([2,3,4])
+      def delete(id_or_array)
+        delete_by(primary_key => id_or_array)
+      end
+
+      def _insert_record(values) # :nodoc:
+        primary_key = self.primary_key
+        primary_key_value = nil
+
+        if prefetch_primary_key? && primary_key
+          values[primary_key] ||= begin
+            primary_key_value = next_sequence_value
+            _default_attributes[primary_key].with_cast_value(primary_key_value)
+          end
+        end
+
+        im = Arel::InsertManager.new(arel_table)
+
+        if values.empty?
+          im.insert(connection.empty_insert_statement_value(primary_key))
+        else
+          im.insert(values.transform_keys { |name| arel_table[name] })
+        end
+
+        connection.insert(im, "#{self} Create", primary_key || false, primary_key_value)
+      end
+
+      def _update_record(values, constraints) # :nodoc:
+        constraints = constraints.map { |name, value| predicate_builder[name, value] }
+
+        if default_scopes?(all_queries: true)
+          constraints << default_scoped(all_queries: true).where_clause.ast
+        end
+
+        if current_scope = self.global_current_scope
+          constraints << current_scope.where_clause.ast
+        end
+
+        um = Arel::UpdateManager.new(arel_table)
+        um.set(values.transform_keys { |name| arel_table[name] })
+        um.wheres = constraints
+
+        connection.update(um, "#{self} Update")
+      end
+
+      def _delete_record(constraints) # :nodoc:
+        constraints = constraints.map { |name, value| predicate_builder[name, value] }
+
+        if default_scopes?(all_queries: true)
+          constraints << default_scoped(all_queries: true).where_clause.ast
+        end
+
+        if current_scope = self.global_current_scope
+          constraints << current_scope.where_clause.ast
+        end
+
+        dm = Arel::DeleteManager.new(arel_table)
+        dm.wheres = constraints
+
+        connection.delete(dm, "#{self} Destroy")
       end
 
       private
+        # Given a class, an attributes hash, +instantiate_instance_of+ returns a
+        # new instance of the class. Accepts only keys as strings.
+        def instantiate_instance_of(klass, attributes, column_types = {}, &block)
+          attributes = klass.attributes_builder.build_from_database(attributes, column_types)
+          klass.allocate.init_with_attributes(attributes, &block)
+        end
+
         # Called by +instantiate+ to decide which class to use for a new
         # record instance.
         #
@@ -83,23 +438,31 @@ module ActiveRecord
     # Returns true if this object hasn't been saved yet -- that is, a record
     # for the object doesn't exist in the database yet; otherwise, returns false.
     def new_record?
-      sync_with_transaction_state
       @new_record
+    end
+
+    # Returns true if this object was just created -- that is, prior to the last
+    # save, the object didn't exist in the database and new_record? would have
+    # returned true.
+    def previously_new_record?
+      @previously_new_record
     end
 
     # Returns true if this object has been destroyed, otherwise returns false.
     def destroyed?
-      sync_with_transaction_state
       @destroyed
     end
 
     # Returns true if the record is persisted, i.e. it's not a new record and it was
     # not destroyed, otherwise returns false.
     def persisted?
-      sync_with_transaction_state
       !(@new_record || @destroyed)
     end
 
+    ##
+    # :call-seq:
+    #   save(**options)
+    #
     # Saves the model.
     #
     # If the model is new, a record gets created in the database, otherwise
@@ -107,7 +470,7 @@ module ActiveRecord
     #
     # By default, save always runs validations. If any of them fail the action
     # is cancelled and #save returns +false+, and the record won't be saved. However, if you supply
-    # validate: false, validations are bypassed altogether. See
+    # <tt>validate: false</tt>, validations are bypassed altogether. See
     # ActiveRecord::Validations for more information.
     #
     # By default, #save also sets the +updated_at+/+updated_on+ attributes to
@@ -121,12 +484,16 @@ module ActiveRecord
     #
     # Attributes marked as readonly are silently ignored if the record is
     # being updated.
-    def save(*args)
-      create_or_update(*args)
+    def save(**options, &block)
+      create_or_update(**options, &block)
     rescue ActiveRecord::RecordInvalid
       false
     end
 
+    ##
+    # :call-seq:
+    #   save!(**options)
+    #
     # Saves the model.
     #
     # If the model is new, a record gets created in the database, otherwise
@@ -134,7 +501,7 @@ module ActiveRecord
     #
     # By default, #save! always runs validations. If any of them fail
     # ActiveRecord::RecordInvalid gets raised, and the record won't be saved. However, if you supply
-    # validate: false, validations are bypassed altogether. See
+    # <tt>validate: false</tt>, validations are bypassed altogether. See
     # ActiveRecord::Validations for more information.
     #
     # By default, #save! also sets the +updated_at+/+updated_on+ attributes to
@@ -148,8 +515,10 @@ module ActiveRecord
     #
     # Attributes marked as readonly are silently ignored if the record is
     # being updated.
-    def save!(*args)
-      create_or_update(*args) || raise(RecordNotSaved.new("Failed to save the record", self))
+    #
+    # Unless an error is raised, returns true.
+    def save!(**options, &block)
+      create_or_update(**options, &block) || raise(RecordNotSaved.new("Failed to save the record", self))
     end
 
     # Deletes the record in the database and freezes this instance to
@@ -163,9 +532,9 @@ module ActiveRecord
     #
     # To enforce the object's +before_destroy+ and +after_destroy+
     # callbacks or any <tt>:dependent</tt> association
-    # options, use <tt>#destroy</tt>.
+    # options, use #destroy.
     def delete
-      self.class.delete(id) if persisted?
+      _delete_row if persisted?
       @destroyed = true
       freeze
     end
@@ -178,10 +547,13 @@ module ActiveRecord
     # and #destroy returns +false+.
     # See ActiveRecord::Callbacks for further details.
     def destroy
-      raise ReadOnlyRecord, "#{self.class} is marked as readonly" if readonly?
+      _raise_readonly_record_error if readonly?
       destroy_associations
-      self.class.connection.add_transaction_record(self)
-      destroy_row if persisted?
+      @_trigger_destroy_callback = if persisted?
+        destroy_row > 0
+      else
+        true
+      end
       @destroyed = true
       freeze
     end
@@ -210,13 +582,16 @@ module ActiveRecord
     # Any change to the attributes on either instance will affect both instances.
     # If you want to change the sti column as well, use #becomes! instead.
     def becomes(klass)
-      became = klass.new
-      became.instance_variable_set("@attributes", @attributes)
-      became.instance_variable_set("@mutation_tracker", @mutation_tracker) if defined?(@mutation_tracker)
-      became.instance_variable_set("@changed_attributes", attributes_changed_by_setter)
-      became.instance_variable_set("@new_record", new_record?)
-      became.instance_variable_set("@destroyed", destroyed?)
-      became.errors.copy!(errors)
+      became = klass.allocate
+
+      became.send(:initialize) do |becoming|
+        becoming.instance_variable_set(:@attributes, @attributes)
+        becoming.instance_variable_set(:@mutations_from_database, @mutations_from_database ||= nil)
+        becoming.instance_variable_set(:@new_record, new_record?)
+        becoming.instance_variable_set(:@destroyed, destroyed?)
+        becoming.errors.copy!(errors)
+      end
+
       became
     end
 
@@ -252,7 +627,8 @@ module ActiveRecord
       name = name.to_s
       verify_readonly_attribute(name)
       public_send("#{name}=", value)
-      save(validate: false) if changed?
+
+      save(validate: false)
     end
 
     # Updates the attributes of the model from the passed-in hash and saves the
@@ -267,8 +643,6 @@ module ActiveRecord
       end
     end
 
-    alias update_attributes update
-
     # Updates its receiver just like #update but calls #save! instead
     # of +save+, so an exception is raised if the record is invalid and saving will fail.
     def update!(attributes)
@@ -279,8 +653,6 @@ module ActiveRecord
         save!
       end
     end
-
-    alias update_attributes! update!
 
     # Equivalent to <code>update_columns(name => value)</code>.
     def update_column(name, value)
@@ -307,17 +679,24 @@ module ActiveRecord
       raise ActiveRecordError, "cannot update a new record" if new_record?
       raise ActiveRecordError, "cannot update a destroyed record" if destroyed?
 
-      attributes.each_key do |key|
-        verify_readonly_attribute(key.to_s)
+      attributes = attributes.transform_keys do |key|
+        name = key.to_s
+        name = self.class.attribute_aliases[name] || name
+        verify_readonly_attribute(name) || name
       end
 
-      updated_count = self.class.unscoped.where(self.class.primary_key => id).update_all(attributes)
-
-      attributes.each do |k, v|
-        raw_write_attribute(k, v)
+      update_constraints = _primary_key_constraints_hash
+      attributes = attributes.each_with_object({}) do |(k, v), h|
+        h[k] = @attributes.write_cast_value(k, v)
+        clear_attribute_change(k)
       end
 
-      updated_count == 1
+      affected_rows = self.class._update_record(
+        attributes,
+        update_constraints
+      )
+
+      affected_rows == 1
     end
 
     # Initializes +attribute+ to zero if +nil+ and adds the value passed as +by+ (default is 1).
@@ -329,15 +708,17 @@ module ActiveRecord
       self
     end
 
-    # Wrapper around #increment that saves the record. This method differs from
-    # its non-bang version in that it passes through the attribute setter.
-    # Saving is not subjected to validation checks. Returns +true+ if the
-    # record could be saved.
-    def increment!(attribute, by = 1)
+    # Wrapper around #increment that writes the update to the database.
+    # Only +attribute+ is updated; the record itself is not saved.
+    # This means that any other modified attributes will still be dirty.
+    # Validations and callbacks are skipped. Supports the +touch+ option from
+    # +update_counters+, see that for more.
+    # Returns +self+.
+    def increment!(attribute, by = 1, touch: nil)
       increment(attribute, by)
-      change = public_send(attribute) - (attribute_was(attribute.to_s) || 0)
-      self.class.update_counters(id, attribute => change)
-      clear_attribute_change(attribute) # eww
+      change = public_send(attribute) - (public_send(:"#{attribute}_in_database") || 0)
+      self.class.update_counters(id, attribute => change, touch: touch)
+      public_send(:"clear_#{attribute}_change")
       self
     end
 
@@ -348,12 +729,14 @@ module ActiveRecord
       increment(attribute, -by)
     end
 
-    # Wrapper around #decrement that saves the record. This method differs from
-    # its non-bang version in the sense that it passes through the attribute setter.
-    # Saving is not subjected to validation checks. Returns +true+ if the
-    # record could be saved.
-    def decrement!(attribute, by = 1)
-      increment!(attribute, -by)
+    # Wrapper around #decrement that writes the update to the database.
+    # Only +attribute+ is updated; the record itself is not saved.
+    # This means that any other modified attributes will still be dirty.
+    # Validations and callbacks are skipped. Supports the +touch+ option from
+    # +update_counters+, see that for more.
+    # Returns +self+.
+    def decrement!(attribute, by = 1, touch: nil)
+      increment!(attribute, -by, touch: touch)
     end
 
     # Assigns to +attribute+ the boolean opposite of <tt>attribute?</tt>. So
@@ -383,8 +766,8 @@ module ActiveRecord
 
     # Reloads the record from the database.
     #
-    # This method finds record by its primary key (which could be assigned manually) and
-    # modifies the receiver in-place:
+    # This method finds the record by its primary key (which could be assigned
+    # manually) and modifies the receiver in-place:
     #
     #   account = Account.new
     #   # => #<Account id: nil, email: nil>
@@ -432,15 +815,15 @@ module ActiveRecord
     def reload(options = nil)
       self.class.connection.clear_query_cache
 
-      fresh_object =
-        if options && options[:lock]
-          self.class.unscoped { self.class.lock(options[:lock]).find(id) }
-        else
-          self.class.unscoped { self.class.find(id) }
-        end
+      fresh_object = if apply_scoping?(options)
+        _find_record(options)
+      else
+        self.class.unscoped { _find_record(options) }
+      end
 
-      @attributes = fresh_object.instance_variable_get('@attributes')
+      @attributes = fresh_object.instance_variable_get(:@attributes)
       @new_record = false
+      @previously_new_record = false
       self
     end
 
@@ -479,87 +862,117 @@ module ActiveRecord
     #   ball.touch(:updated_at)   # => raises ActiveRecordError
     #
     def touch(*names, time: nil)
-      raise ActiveRecordError, "cannot touch on a new record object" unless persisted?
+      _raise_record_not_touched_error unless persisted?
 
-      time ||= current_time_from_proper_timezone
-      attributes = timestamp_attributes_for_update_in_model
-      attributes.concat(names)
+      attribute_names = timestamp_attributes_for_update_in_model
+      attribute_names |= names.map! do |name|
+        name = name.to_s
+        self.class.attribute_aliases[name] || name
+      end unless names.empty?
 
-      unless attributes.empty?
-        changes = {}
-
-        attributes.each do |column|
-          column = column.to_s
-          changes[column] = write_attribute(column, time)
-        end
-
-        clear_attribute_changes(changes.keys)
-        primary_key = self.class.primary_key
-        scope = self.class.unscoped.where(primary_key => _read_attribute(primary_key))
-
-        if locking_enabled?
-          locking_column = self.class.locking_column
-          scope = scope.where(locking_column => _read_attribute(locking_column))
-          changes[locking_column] = increment_lock
-        end
-
-        result = scope.update_all(changes) == 1
-
-        if !result && locking_enabled?
-          raise ActiveRecord::StaleObjectError.new(self, "touch")
-        end
-
-        result
+      unless attribute_names.empty?
+        affected_rows = _touch_row(attribute_names, time)
+        @_trigger_update_callback = affected_rows == 1
       else
         true
       end
     end
 
   private
+    def _find_record(options)
+      if options && options[:lock]
+        self.class.lock(options[:lock]).find(id)
+      else
+        self.class.find(id)
+      end
+    end
+
+    def apply_scoping?(options)
+      !(options && options[:unscoped]) &&
+        (self.class.default_scopes?(all_queries: true) || self.class.global_current_scope)
+    end
+
+    def _primary_key_constraints_hash
+      { @primary_key => id_in_database }
+    end
 
     # A hook to be overridden by association modules.
     def destroy_associations
     end
 
     def destroy_row
-      relation_for_destroy.delete_all
+      _delete_row
     end
 
-    def relation_for_destroy
-      self.class.unscoped.where(self.class.primary_key => id)
+    def _delete_row
+      self.class._delete_record(_primary_key_constraints_hash)
     end
 
-    def create_or_update(*args)
-      raise ReadOnlyRecord, "#{self.class} is marked as readonly" if readonly?
-      result = new_record? ? _create_record : _update_record(*args)
+    def _touch_row(attribute_names, time)
+      time ||= current_time_from_proper_timezone
+
+      attribute_names.each do |attr_name|
+        _write_attribute(attr_name, time)
+      end
+
+      _update_row(attribute_names, "touch")
+    end
+
+    def _update_row(attribute_names, attempted_action = "update")
+      self.class._update_record(
+        attributes_with_values(attribute_names),
+        _primary_key_constraints_hash
+      )
+    end
+
+    def create_or_update(**, &block)
+      _raise_readonly_record_error if readonly?
+      return false if destroyed?
+      result = new_record? ? _create_record(&block) : _update_record(&block)
       result != false
     end
 
     # Updates the associated record with values matching those of the instance attributes.
     # Returns the number of affected rows.
     def _update_record(attribute_names = self.attribute_names)
-      attributes_values = arel_attributes_with_values_for_update(attribute_names)
-      if attributes_values.empty?
-        0
+      attribute_names = attributes_for_update(attribute_names)
+
+      if attribute_names.empty?
+        affected_rows = 0
+        @_trigger_update_callback = true
       else
-        self.class.unscoped._update_record attributes_values, id, id_was
+        affected_rows = _update_row(attribute_names)
+        @_trigger_update_callback = affected_rows == 1
       end
+
+      @previously_new_record = false
+
+      yield(self) if block_given?
+
+      affected_rows
     end
 
     # Creates a record with values matching those of the instance attributes
     # and returns its id.
     def _create_record(attribute_names = self.attribute_names)
-      attributes_values = arel_attributes_with_values_for_create(attribute_names)
+      attribute_names = attributes_for_create(attribute_names)
 
-      new_id = self.class.unscoped.insert attributes_values
-      self.id ||= new_id if self.class.primary_key
+      new_id = self.class._insert_record(
+        attributes_with_values(attribute_names)
+      )
+
+      self.id ||= new_id if @primary_key
 
       @new_record = false
+      @previously_new_record = true
+
+      yield(self) if block_given?
+
       id
     end
 
     def verify_readonly_attribute(name)
-      raise ActiveRecordError, "#{name} is marked as readonly" if self.class.readonly_attributes.include?(name)
+      raise ActiveRecordError, "#{name} is marked as readonly" if self.class.readonly_attribute?(name)
     end
 
     def _raise_record_not_destroyed
@@ -569,6 +982,19 @@ module ActiveRecord
       @_association_destroy_exception = nil
     end
 
+    def _raise_readonly_record_error
+      raise ReadOnlyRecord, "#{self.class} is marked as readonly"
+    end
+
+    def _raise_record_not_touched_error
+      raise ActiveRecordError, <<~MSG.squish
+        Cannot touch on a new or destroyed record object. Consider using
+        persisted?, new_record?, or destroyed? before touching.
+      MSG
+    end
+
+    # The name of the method used to touch a +belongs_to+ association when the
+    # +:touch+ option is used.
     def belongs_to_touch_method
       :touch
     end

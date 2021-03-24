@@ -1,5 +1,6 @@
-require 'active_support/core_ext/hash/except'
-require 'active_support/core_ext/hash/slice'
+# frozen_string_literal: true
+
+require "active_support/core_ext/enumerable"
 
 module ActiveModel
   # == Active \Model \Serialization
@@ -122,17 +123,17 @@ module ActiveModel
     #   user.serializable_hash(include: { notes: { only: 'title' }})
     #   # => {"name" => "Napoleon", "notes" => [{"title"=>"Battle of Austerlitz"}]}
     def serializable_hash(options = nil)
-      options ||= {}
-
       attribute_names = attributes.keys
+
+      return serializable_attributes(attribute_names) if options.blank?
+
       if only = options[:only]
         attribute_names &= Array(only).map(&:to_s)
       elsif except = options[:except]
         attribute_names -= Array(except).map(&:to_s)
       end
 
-      hash = {}
-      attribute_names.each { |n| hash[n] = read_attribute_for_serialization(n) }
+      hash = serializable_attributes(attribute_names)
 
       Array(options[:methods]).each { |m| hash[m.to_s] = send(m) }
 
@@ -148,7 +149,6 @@ module ActiveModel
     end
 
     private
-
       # Hook method defining how an attribute value should be retrieved for
       # serialization. By default this is assumed to be an instance named after
       # the attribute. Override this method in subclasses should you need to
@@ -167,6 +167,10 @@ module ActiveModel
       #   end
       alias :read_attribute_for_serialization :send
 
+      def serializable_attributes(attribute_names)
+        attribute_names.index_with { |n| read_attribute_for_serialization(n) }
+      end
+
       # Add associations specified via the <tt>:include</tt> option.
       #
       # Expects a block that takes as arguments:
@@ -177,7 +181,7 @@ module ActiveModel
         return unless includes = options[:include]
 
         unless includes.is_a?(Hash)
-          includes = Hash[Array(includes).map { |n| n.is_a?(Hash) ? n.to_a.first : [n, {}] }]
+          includes = Hash[Array(includes).flat_map { |n| n.is_a?(Hash) ? n.to_a : [[n, {}]] }]
         end
 
         includes.each do |association, opts|

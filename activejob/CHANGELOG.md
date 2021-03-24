@@ -1,162 +1,30 @@
-## Rails 5.0.0.beta4 (April 27, 2016) ##
+*   Communicate enqueue failures to callers of `perform_later`.
 
-*   Enable class reloading prior to job dispatch, and ensure Active Record
-    connections are returned to the pool when jobs are run in separate threads.
+    `perform_later` can now optionally take a block which will execute after
+    the adapter attempts to enqueue the job. The block will receive the job
+    instance as an argument even if the enqueue was not successful.
+    Additionally, `ActiveJob` adapters now have the ability to raise an
+    `ActiveJob::EnqueueError` which will be caught and stored in the job
+    instance so code attempting to enqueue jobs can inspect any raised
+    `EnqueueError` using the block.
 
-    *Matthew Draper*
-
-*   Tune the async adapter for low-footprint dev/test usage. Use a single
-    thread pool for all queues and limit to 0 to #CPU total threads, down from
-    2 to 10*#CPU per queue.
-
-    *Jeremy Daer*
-
-
-## Rails 5.0.0.beta3 (February 24, 2016) ##
-
-*   Change the default adapter from inline to async. It's a better default as tests will then not mistakenly
-    come to rely on behavior happening synchronously. This is especially important with things like jobs kicked off
-    in Active Record lifecycle callbacks.
-
-    *DHH*
-
-
-## Rails 5.0.0.beta2 (February 01, 2016) ##
-
-*   No changes.
-
-
-## Rails 5.0.0.beta1 (December 18, 2015) ##
-
-*   Fixed serializing `:at` option for `assert_enqueued_with`
-    and `assert_performed_with`.
-
-    *Wojciech Wnętrzak*
-
-*   Support passing array to `assert_enqueued_jobs` in `:only` option.
-
-    *Wojciech Wnętrzak*
-
-*   Add job priorities to Active Job.
-
-    *wvengen*
-
-*   Implement a simple `AsyncJob` processor and associated `AsyncAdapter` that
-    queue jobs to a `concurrent-ruby` thread pool.
-
-    *Jerry D'Antonio*
-
-*   Implement `provider_job_id` for `queue_classic` adapter. This requires the
-    latest, currently unreleased, version of queue_classic.
-
-    *Yves Senn*
-
-*   `assert_enqueued_with` and `assert_performed_with` now returns the matched
-    job instance for further assertions.
-
-    *Jean Boussier*
-
-*   Include `I18n.locale` into job serialization/deserialization and use it around
-    `perform`.
-
-    Fixes #20799.
-
-    *Johannes Opper*
-
-*   Allow `DelayedJob`, `Sidekiq`, `qu`, and `que` to report the job id back to
-    `ActiveJob::Base` as `provider_job_id`.
-
-    Fixes #18821.
-
-    *Kevin Deisz*, *Jeroen van Baarsen*
-
-*   `assert_enqueued_jobs` and `assert_performed_jobs` in block form use the
-    given number as expected value. This makes the error message much easier to
-    understand.
-
-    *y-yagi*
-
-*   A generated job now inherits from `app/jobs/application_job.rb` by default.
-
-    *Jeroen van Baarsen*
-
-*   Add an `:only` option to `perform_enqueued_jobs` to filter jobs based on
-    type.
-
-    This allows specific jobs to be tested, while preventing others from
-    being performed unnecessarily.
-
-    Example:
-
-        def test_hello_job
-          assert_performed_jobs 1, only: HelloJob do
-            HelloJob.perform_later('jeremy')
-            LoggingJob.perform_later
-          end
-        end
-
-    An array may also be specified, to support testing multiple jobs.
-
-    Example:
-
-        def test_hello_and_logging_jobs
-          assert_nothing_raised do
-            assert_performed_jobs 2, only: [HelloJob, LoggingJob] do
-              HelloJob.perform_later('jeremy')
-              LoggingJob.perform_later('stewie')
-              RescueJob.perform_later('david')
+        MyJob.perform_later do |job|
+          unless job.successfully_enqueued?
+            if job.enqueue_error&.message == "Redis was unavailable"
+              # invoke some code that will retry the job after a delay
             end
           end
         end
 
-    Fixes #18802.
+    *Daniel Morton*
 
-    *Michael Ryan*
+*   Don't log rescuable exceptions defined with `rescue_from`.
 
-*   Allow keyword arguments to be used with Active Job.
+    *Hu Hailin*
 
-    Fixes #18741.
+*   Allow `rescue_from` to rescue all exceptions.
 
-    *Sean Griffin*
+    *Adrianna Chang*, *Étienne Barrié*
 
-*   Add `:only` option to `assert_enqueued_jobs`, to check the number of times
-    a specific kind of job is enqueued.
 
-    Example:
-
-        def test_logging_job
-          assert_enqueued_jobs 1, only: LoggingJob do
-            LoggingJob.perform_later
-            HelloJob.perform_later('jeremy')
-          end
-        end
-
-    *George Claghorn*
-
-*   `ActiveJob::Base.deserialize` delegates to the job class.
-
-    Since `ActiveJob::Base#deserialize` can be overridden by subclasses (like
-    `ActiveJob::Base#serialize`) this allows jobs to attach arbitrary metadata
-    when they get serialized and read it back when they get performed.
-
-    Example:
-
-        class DeliverWebhookJob < ActiveJob::Base
-          def serialize
-            super.merge('attempt_number' => (@attempt_number || 0) + 1)
-          end
-
-          def deserialize(job_data)
-            super
-            @attempt_number = job_data['attempt_number']
-          end
-
-          rescue_from(TimeoutError) do |exception|
-            raise exception if @attempt_number > 5
-            retry_job(wait: 10)
-          end
-        end
-
-    *Isaac Seymour*
-
-Please check [4-2-stable](https://github.com/rails/rails/blob/4-2-stable/activejob/CHANGELOG.md) for previous changes.
+Please check [6-1-stable](https://github.com/rails/rails/blob/6-1-stable/activejob/CHANGELOG.md) for previous changes.

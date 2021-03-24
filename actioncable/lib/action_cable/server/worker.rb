@@ -1,6 +1,9 @@
-require 'active_support/callbacks'
-require 'active_support/core_ext/module/attribute_accessors_per_thread'
-require 'concurrent'
+# frozen_string_literal: true
+
+require "active_support/callbacks"
+require "active_support/core_ext/module/attribute_accessors_per_thread"
+require "action_cable/server/worker/active_record_connection_management"
+require "concurrent"
 
 module ActionCable
   module Server
@@ -25,7 +28,7 @@ module ActionCable
       # Stop processing work: any work that has not already started
       # running will be discarded from the queue
       def halt
-        @executor.kill
+        @executor.shutdown
       end
 
       def stopping?
@@ -42,27 +45,28 @@ module ActionCable
         self.connection = nil
       end
 
-      def async_invoke(receiver, method, *args, connection: receiver)
+      def async_exec(receiver, *args, connection:, &block)
+        async_invoke receiver, :instance_exec, *args, connection: connection, &block
+      end
+
+      def async_invoke(receiver, method, *args, connection: receiver, &block)
         @executor.post do
-          invoke(receiver, method, *args, connection: connection)
+          invoke(receiver, method, *args, connection: connection, &block)
         end
       end
 
-      def invoke(receiver, method, *args, connection:)
+      def invoke(receiver, method, *args, connection:, &block)
         work(connection) do
-          begin
-            receiver.send method, *args
-          rescue Exception => e
-            logger.error "There was an exception - #{e.class}(#{e.message})"
-            logger.error e.backtrace.join("\n")
+          receiver.send method, *args, &block
+        rescue Exception => e
+          logger.error "There was an exception - #{e.class}(#{e.message})"
+          logger.error e.backtrace.join("\n")
 
-            receiver.handle_exception if receiver.respond_to?(:handle_exception)
-          end
+          receiver.handle_exception if receiver.respond_to?(:handle_exception)
         end
       end
 
       private
-
         def logger
           ActionCable.server.logger
         end

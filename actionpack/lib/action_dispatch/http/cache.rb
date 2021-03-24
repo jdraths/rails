@@ -1,10 +1,11 @@
+# frozen_string_literal: true
+
 module ActionDispatch
   module Http
     module Cache
       module Request
-
-        HTTP_IF_MODIFIED_SINCE = 'HTTP_IF_MODIFIED_SINCE'.freeze
-        HTTP_IF_NONE_MATCH     = 'HTTP_IF_NONE_MATCH'.freeze
+        HTTP_IF_MODIFIED_SINCE = "HTTP_IF_MODIFIED_SINCE"
+        HTTP_IF_NONE_MATCH     = "HTTP_IF_NONE_MATCH"
 
         def if_modified_since
           if since = get_header(HTTP_IF_MODIFIED_SINCE)
@@ -27,7 +28,7 @@ module ActionDispatch
         def etag_matches?(etag)
           if etag
             validators = if_none_match_etags
-            validators.include?(etag) || validators.include?('*')
+            validators.include?(etag) || validators.include?("*")
           end
         end
 
@@ -96,24 +97,24 @@ module ActionDispatch
         # support strong ETags and will ignore weak ETags entirely.
         #
         # Weak ETags are what we almost always need, so they're the default.
-        # Check out `#strong_etag=` to provide a strong ETag validator.
+        # Check out #strong_etag= to provide a strong ETag validator.
         def etag=(weak_validators)
           self.weak_etag = weak_validators
         end
 
         def weak_etag=(weak_validators)
-          set_header 'ETag', generate_weak_etag(weak_validators)
+          set_header "ETag", generate_weak_etag(weak_validators)
         end
 
         def strong_etag=(strong_validators)
-          set_header 'ETag', generate_strong_etag(strong_validators)
+          set_header "ETag", generate_strong_etag(strong_validators)
         end
 
         def etag?; etag; end
 
         # True if an ETag is set and it's a weak validator (preceded with W/)
         def weak_etag?
-          etag? && etag.starts_with?('W/"')
+          etag? && etag.start_with?('W/"')
         end
 
         # True if an ETag is set and it isn't a weak validator (not preceded with W/)
@@ -122,22 +123,21 @@ module ActionDispatch
         end
 
       private
-
-        DATE          = 'Date'.freeze
-        LAST_MODIFIED = "Last-Modified".freeze
-        SPECIAL_KEYS  = Set.new(%w[extras no-cache max-age public private must-revalidate])
+        DATE          = "Date"
+        LAST_MODIFIED = "Last-Modified"
+        SPECIAL_KEYS  = Set.new(%w[extras no-store no-cache max-age public private must-revalidate])
 
         def generate_weak_etag(validators)
           "W/#{generate_strong_etag(validators)}"
         end
 
         def generate_strong_etag(validators)
-          %("#{Digest::MD5.hexdigest(ActiveSupport::Cache.expand_cache_key(validators))}")
+          %("#{ActiveSupport::Digest.hexdigest(ActiveSupport::Cache.expand_cache_key(validators))}")
         end
 
         def cache_control_segments
           if cache_control = _cache_control
-            cache_control.delete(' ').split(',')
+            cache_control.delete(" ").split(",")
           else
             []
           end
@@ -147,11 +147,11 @@ module ActionDispatch
           cache_control = {}
 
           cache_control_segments.each do |segment|
-            directive, argument = segment.split('=', 2)
+            directive, argument = segment.split("=", 2)
 
             if SPECIAL_KEYS.include? directive
-              key = directive.tr('-', '_')
-              cache_control[key.to_sym] = argument || true
+              directive.tr!("-", "_")
+              cache_control[directive.to_sym] = argument || true
             else
               cache_control[:extras] ||= []
               cache_control[:extras] << segment
@@ -165,45 +165,57 @@ module ActionDispatch
           @cache_control = cache_control_headers
         end
 
+        DEFAULT_CACHE_CONTROL = "max-age=0, private, must-revalidate"
+        NO_STORE              = "no-store"
+        NO_CACHE              = "no-cache"
+        PUBLIC                = "public"
+        PRIVATE               = "private"
+        MUST_REVALIDATE       = "must-revalidate"
+
         def handle_conditional_get!
-          if etag? || last_modified? || !@cache_control.empty?
-            set_conditional_cache_control!(@cache_control)
+          # Normally default cache control setting is handled by ETag
+          # middleware. But, if an etag is already set, the middleware
+          # defaults to `no-cache` unless a default `Cache-Control` value is
+          # previously set. So, set a default one here.
+          if (etag? || last_modified?) && !self._cache_control
+            self._cache_control = DEFAULT_CACHE_CONTROL
           end
         end
 
-        DEFAULT_CACHE_CONTROL = "max-age=0, private, must-revalidate".freeze
-        NO_CACHE              = "no-cache".freeze
-        PUBLIC                = "public".freeze
-        PRIVATE               = "private".freeze
-        MUST_REVALIDATE       = "must-revalidate".freeze
+        def merge_and_normalize_cache_control!(cache_control)
+          control = cache_control_headers
 
-        def set_conditional_cache_control!(cache_control)
-          control = {}
-          cc_headers = cache_control_headers
-          if extras = cc_headers.delete(:extras)
+          return if control.empty? && cache_control.empty?  # Let middleware handle default behavior
+
+          if extras = control.delete(:extras)
             cache_control[:extras] ||= []
             cache_control[:extras] += extras
             cache_control[:extras].uniq!
           end
 
-          control.merge! cc_headers
           control.merge! cache_control
 
-          if control.empty?
-            self._cache_control = DEFAULT_CACHE_CONTROL
+          if control[:no_store]
+            self._cache_control = NO_STORE
           elsif control[:no_cache]
-            self._cache_control = NO_CACHE
-            if control[:extras]
-              self._cache_control = _cache_control + ", #{control[:extras].join(', ')}"
-            end
+            options = []
+            options << PUBLIC if control[:public]
+            options << NO_CACHE
+            options.concat(control[:extras]) if control[:extras]
+
+            self._cache_control = options.join(", ")
           else
-            extras  = control[:extras]
+            extras = control[:extras]
             max_age = control[:max_age]
+            stale_while_revalidate = control[:stale_while_revalidate]
+            stale_if_error = control[:stale_if_error]
 
             options = []
             options << "max-age=#{max_age.to_i}" if max_age
             options << (control[:public] ? PUBLIC : PRIVATE)
             options << MUST_REVALIDATE if control[:must_revalidate]
+            options << "stale-while-revalidate=#{stale_while_revalidate.to_i}" if stale_while_revalidate
+            options << "stale-if-error=#{stale_if_error.to_i}" if stale_if_error
             options.concat(extras) if extras
 
             self._cache_control = options.join(", ")

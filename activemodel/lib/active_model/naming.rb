@@ -1,13 +1,14 @@
-require 'active_support/core_ext/hash/except'
-require 'active_support/core_ext/module/introspection'
-require 'active_support/core_ext/module/remove_method'
-require 'active_support/core_ext/module/delegation'
+# frozen_string_literal: true
+
+require "active_support/core_ext/hash/except"
+require "active_support/core_ext/module/introspection"
+require "active_support/core_ext/module/redefine_method"
 
 module ActiveModel
   class Name
     include Comparable
 
-    attr_reader :singular, :plural, :element, :collection,
+    attr_accessor :singular, :plural, :element, :collection,
       :singular_route_key, :route_key, :param_key, :i18n_key,
       :name
 
@@ -48,7 +49,7 @@ module ActiveModel
     # :method: <=>
     #
     # :call-seq:
-    #   ==(other)
+    #   <=>(other)
     #
     # Equivalent to <tt>String#<=></tt>.
     #
@@ -110,6 +111,22 @@ module ActiveModel
     #   BlogPost.model_name.eql?('Blog Post') # => false
 
     ##
+    # :method: match?
+    #
+    # :call-seq:
+    #   match?(regexp)
+    #
+    # Equivalent to <tt>String#match?</tt>. Match the class name against the
+    # given regexp. Returns +true+ if there is a match, otherwise +false+.
+    #
+    #   class BlogPost
+    #     extend ActiveModel::Naming
+    #   end
+    #
+    #   BlogPost.model_name.match?(/Post/) # => true
+    #   BlogPost.model_name.match?(/\d/) # => false
+
+    ##
     # :method: to_s
     #
     # :call-seq:
@@ -130,12 +147,13 @@ module ActiveModel
     #   to_str()
     #
     # Equivalent to +to_s+.
-    delegate :==, :===, :<=>, :=~, :"!~", :eql?, :to_s,
+    delegate :==, :===, :<=>, :=~, :"!~", :eql?, :match?, :to_s,
              :to_str, :as_json, to: :name
 
     # Returns a new ActiveModel::Name instance. By default, the +namespace+
     # and +name+ option will take the namespace and name of the given class
     # respectively.
+    # Use +locale+ argument for singularize and pluralize model name.
     #
     #   module Foo
     #     class Bar
@@ -144,24 +162,25 @@ module ActiveModel
     #
     #   ActiveModel::Name.new(Foo::Bar).to_s
     #   # => "Foo::Bar"
-    def initialize(klass, namespace = nil, name = nil)
+    def initialize(klass, namespace = nil, name = nil, locale = :en)
       @name = name || klass.name
 
       raise ArgumentError, "Class name cannot be blank. You need to supply a name argument when anonymous class given" if @name.blank?
 
-      @unnamespaced = @name.sub(/^#{namespace.name}::/, '') if namespace
+      @unnamespaced = @name.delete_prefix("#{namespace.name}::") if namespace
       @klass        = klass
       @singular     = _singularize(@name)
-      @plural       = ActiveSupport::Inflector.pluralize(@singular)
+      @plural       = ActiveSupport::Inflector.pluralize(@singular, locale)
+      @uncountable  = @plural == @singular
       @element      = ActiveSupport::Inflector.underscore(ActiveSupport::Inflector.demodulize(@name))
       @human        = ActiveSupport::Inflector.humanize(@element)
       @collection   = ActiveSupport::Inflector.tableize(@name)
       @param_key    = (namespace ? _singularize(@unnamespaced) : @singular)
       @i18n_key     = @name.underscore.to_sym
 
-      @route_key          = (namespace ? ActiveSupport::Inflector.pluralize(@param_key) : @plural.dup)
-      @singular_route_key = ActiveSupport::Inflector.singularize(@route_key)
-      @route_key << "_index" if @plural == @singular
+      @route_key          = (namespace ? ActiveSupport::Inflector.pluralize(@param_key, locale) : @plural.dup)
+      @singular_route_key = ActiveSupport::Inflector.singularize(@route_key, locale)
+      @route_key << "_index" if @uncountable
     end
 
     # Transform the model name into a more human format, using I18n. By default,
@@ -174,7 +193,7 @@ module ActiveModel
     #   BlogPost.model_name.human # => "Blog post"
     #
     # Specify +options+ with additional translating options.
-    def human(options={})
+    def human(options = {})
       return @human unless @klass.respond_to?(:lookup_ancestors) &&
                            @klass.respond_to?(:i18n_scope)
 
@@ -186,14 +205,17 @@ module ActiveModel
       defaults << @human
 
       options = { scope: [@klass.i18n_scope, :models], count: 1, default: defaults }.merge!(options.except(:default))
-      I18n.translate(defaults.shift, options)
+      I18n.translate(defaults.shift, **options)
+    end
+
+    def uncountable?
+      @uncountable
     end
 
     private
-
-    def _singularize(string)
-      ActiveSupport::Inflector.underscore(string).tr('/'.freeze, '_'.freeze)
-    end
+      def _singularize(string)
+        ActiveSupport::Inflector.underscore(string).tr("/", "_")
+      end
   end
 
   # == Active \Model \Naming
@@ -217,7 +239,7 @@ module ActiveModel
   # provided method below, or rolling your own is required.
   module Naming
     def self.extended(base) #:nodoc:
-      base.remove_possible_method :model_name
+      base.silence_redefinition_of_method :model_name
       base.delegate :model_name, to: :class
     end
 
@@ -235,7 +257,7 @@ module ActiveModel
     #   Person.model_name.plural   # => "people"
     def model_name
       @_model_name ||= begin
-        namespace = self.parents.detect do |n|
+        namespace = module_parents.detect do |n|
           n.respond_to?(:use_relative_model_naming?) && n.use_relative_model_naming?
         end
         ActiveModel::Name.new(self, namespace)
@@ -263,7 +285,7 @@ module ActiveModel
     #   ActiveModel::Naming.uncountable?(Sheep) # => true
     #   ActiveModel::Naming.uncountable?(Post)  # => false
     def self.uncountable?(record_or_class)
-      plural(record_or_class) == singular(record_or_class)
+      model_name_from_record_or_class(record_or_class).uncountable?
     end
 
     # Returns string to use while generating route names. It differs for
